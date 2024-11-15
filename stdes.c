@@ -1,36 +1,61 @@
 #include "stdes.h"
-#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <stdarg.h>
 #include <string.h>
-#include <stdio.h>
+#include <stdlib.h>
 
+// Taille du tampon
+#define BUFFER_SIZE 1024
+
+// Structure de gestion des fichiers
 struct _ES_FICHIER {
     int fd;                 // Descripteur de fichier
-    char *buffer;           // Tampon
-    size_t buffer_size;     // Taille du tampon
-    size_t pos;             // Position actuelle dans le tampon
-    int mode;               // Mode ('L' pour lecture, 'E' pour écriture)
+    char buffer[BUFFER_SIZE]; // Tampon statique
+    unsigned int pos;       // Position actuelle dans le tampon
+    unsigned int size;      // Taille des données dans le tampon
+    char mode;              // Mode ('L' pour lecture, 'E' pour écriture)
     int end_of_file;        // Indicateur de fin de fichier
 };
 
-// Variables stdout et stderr
+// Variables globales pour stdout et stderr
 FICHIER *es_stdout = NULL;
 FICHIER *es_stderr = NULL;
 
+// Fonction d'initialisation de stdout et stderr
+void init_es_stdout_stderr() {
+    es_stdout = malloc(sizeof(FICHIER));
+    if (!es_stdout) {
+        write(STDERR_FILENO, "Erreur : allocation mémoire pour es_stdout\n", 43);
+        exit(1);
+    }
+    es_stdout->fd = STDOUT_FILENO;
+    es_stdout->pos = 0;
+    es_stdout->size = 0;
+    es_stdout->mode = 'E';
+    es_stdout->end_of_file = 0;
+
+    es_stderr = malloc(sizeof(FICHIER));
+    if (!es_stderr) {
+        write(STDERR_FILENO, "Erreur : allocation mémoire pour es_stderr\n", 43);
+        exit(1);
+    }
+    es_stderr->fd = STDERR_FILENO;
+    es_stderr->pos = 0;
+    es_stderr->size = 0;
+    es_stderr->mode = 'E';
+    es_stderr->end_of_file = 0;
+}
+
+// Fonction pour ouvrir un fichier
 FICHIER *ouvrir(const char *nom, char mode) {
     FICHIER *file = malloc(sizeof(FICHIER));
-    if (!file) return NULL;
-
-    file->buffer = malloc(BUFFER_SIZE);
-    if (!file->buffer) {
-        free(file);
+    if (!file) {
+        write(STDERR_FILENO, "Erreur : allocation mémoire échouée\n", 37);
         return NULL;
     }
 
-    file->buffer_size = BUFFER_SIZE;
     file->pos = 0;
+    file->size = 0;
     file->end_of_file = 0;
 
     if (mode == 'L') {
@@ -40,13 +65,13 @@ FICHIER *ouvrir(const char *nom, char mode) {
         file->fd = open(nom, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         file->mode = 'E';
     } else {
-        free(file->buffer);
+        write(STDERR_FILENO, "Erreur : mode inconnu\n", 23);
         free(file);
         return NULL;
     }
 
     if (file->fd == -1) {
-        free(file->buffer);
+        write(STDERR_FILENO, "Erreur : impossible d'ouvrir le fichier\n", 41);
         free(file);
         return NULL;
     }
@@ -54,6 +79,7 @@ FICHIER *ouvrir(const char *nom, char mode) {
     return file;
 }
 
+// Fonction pour fermer un fichier
 int fermer(FICHIER *f) {
     if (!f) return -1;
 
@@ -62,72 +88,99 @@ int fermer(FICHIER *f) {
     }
 
     close(f->fd);
-    free(f->buffer);
     free(f);
     return 0;
 }
 
+// Fonction pour lire dans un fichier
 int lire(void *p, unsigned int taille, unsigned int nbelem, FICHIER *f) {
-    if (f->mode != 'L' || f->end_of_file) return 0;
+    if (!f || f->fd == -1) {
+        write(STDERR_FILENO, "Erreur : pointeur fichier NULL ou fichier non ouvert dans lire\n", 62);
+        return -1;
+    }
+    if (f->mode != 'L') return -1;
 
-    size_t total_bytes = taille * nbelem;
-    size_t bytes_read = 0;
+    unsigned int total_bytes = taille * nbelem;
+    unsigned int bytes_read = 0;
+
+    char *dest = (char *)p;
 
     while (bytes_read < total_bytes) {
-        if (f->pos >= f->buffer_size) {
+        if (f->pos >= f->size) {
+            // Remplir le tampon
             ssize_t read_bytes = read(f->fd, f->buffer, BUFFER_SIZE);
             if (read_bytes <= 0) {
                 f->end_of_file = 1;
                 break;
             }
             f->pos = 0;
-            f->buffer_size = read_bytes;
+            f->size = read_bytes;
         }
 
-        size_t bytes_to_copy = total_bytes - bytes_read;
-        if (bytes_to_copy > f->buffer_size - f->pos) {
-            bytes_to_copy = f->buffer_size - f->pos;
+        unsigned int chunk_size = total_bytes - bytes_read;
+        if (chunk_size > f->size - f->pos) {
+            chunk_size = f->size - f->pos;
         }
 
-        memcpy((char *)p + bytes_read, f->buffer + f->pos, bytes_to_copy);
-        f->pos += bytes_to_copy;
-        bytes_read += bytes_to_copy;
+        memcpy(dest + bytes_read, f->buffer + f->pos, chunk_size);
+        f->pos += chunk_size;
+        bytes_read += chunk_size;
     }
 
     return bytes_read / taille;
 }
 
+// Fonction pour écrire dans un fichier
 int ecrire(const void *p, unsigned int taille, unsigned int nbelem, FICHIER *f) {
+    if (!f || f->fd == -1) {
+        write(STDERR_FILENO, "Erreur : pointeur fichier NULL ou fichier non ouvert dans ecrire\n", 64);
+        return -1;
+    }
     if (f->mode != 'E') return -1;
 
-    size_t total_bytes = taille * nbelem;
-    size_t bytes_written = 0;
+    unsigned int total_bytes = taille * nbelem;
+    unsigned int bytes_written = 0;
+
+    const char *src = (const char *)p;
 
     while (bytes_written < total_bytes) {
         if (f->pos == BUFFER_SIZE) {
-            write(f->fd, f->buffer, BUFFER_SIZE);
+            // Écrire le tampon
+            if (write(f->fd, f->buffer, BUFFER_SIZE) == -1) {
+                write(STDERR_FILENO, "Erreur lors de l'écriture dans le fichier\n", 43);
+                return -1;
+            }
             f->pos = 0;
         }
 
-        size_t bytes_to_copy = total_bytes - bytes_written;
-        if (bytes_to_copy > BUFFER_SIZE - f->pos) {
-            bytes_to_copy = BUFFER_SIZE - f->pos;
+        unsigned int chunk_size = total_bytes - bytes_written;
+        if (chunk_size > BUFFER_SIZE - f->pos) {
+            chunk_size = BUFFER_SIZE - f->pos;
         }
 
-        memcpy(f->buffer + f->pos, (char *)p + bytes_written, bytes_to_copy);
-        f->pos += bytes_to_copy;
-        bytes_written += bytes_to_copy;
+        memcpy(f->buffer + f->pos, src + bytes_written, chunk_size);
+        f->pos += chunk_size;
+        bytes_written += chunk_size;
     }
 
     return bytes_written / taille;
 }
 
+// Fonction pour vider un tampon
 int vider(FICHIER *f) {
+    if (!f || f->fd == -1) {
+        write(STDERR_FILENO, "Erreur : pointeur fichier NULL ou fichier non ouvert dans vider\n", 62);
+        return -1;
+    }
     if (f->mode != 'E') return -1;
+
     if (f->pos > 0) {
-        write(f->fd, f->buffer, f->pos);
+        if (write(f->fd, f->buffer, f->pos) == -1) {
+            write(STDERR_FILENO, "Erreur lors de la vidange du tampon\n", 36);
+            return -1;
+        }
         f->pos = 0;
     }
+
     return 0;
 }
-

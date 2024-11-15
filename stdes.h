@@ -15,6 +15,9 @@ typedef struct _ES_FICHIER FICHIER;
 extern FICHIER *es_stdout;
 extern FICHIER *es_stderr;
 
+// Initialisation de es_stdout et es_stderr
+void init_es_stdout_stderr();
+
 /* mode: 'L' = lecture, 'E' = écriture */
 FICHIER *ouvrir(const char *nom, char mode);
 int fermer(FICHIER*f);

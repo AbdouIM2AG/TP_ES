@@ -6,6 +6,7 @@ int main(int argc, char *argv[])
 	FICHIER *f1;
 	FICHIER *f2;
 	char c;
+	init_es_stdout_stderr();
 
 	if (argc != 3)
 		exit(-1);
