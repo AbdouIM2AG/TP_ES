@@ -1,11 +1,19 @@
 #ifndef _STDES_H
 #define _STDES_H
 
+#include<stddef.h>
+#include<sys/types.h>
+
+// Définit la taille du tampon
+#define BUFFER_SIZE 1024 
+
+// Structure opaque pour le type FICHIER
 struct _ES_FICHIER;
 typedef struct _ES_FICHIER FICHIER;
 
-extern FICHIER *stdout;
-extern FICHIER *stderr;
+// Déclarations des variables stdout et stderr
+extern FICHIER *es_stdout;
+extern FICHIER *es_stderr;
 
 /* mode: 'L' = lecture, 'E' = écriture */
 FICHIER *ouvrir(const char *nom, char mode);

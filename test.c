@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
 		exit (-1);
 
 	while (lire (&c, 1, 1, f1) == 1) {
-          ecrire (&c, 1, 1, stdout);
+          ecrire (&c, 1, 1, es_stdout);
           ecrire (&c, 1, 1, f2);
 	}
 /*        vider (stdout);*/
