@@ -3,6 +3,8 @@
 #include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>  // Pour vsnprintf et vsscanf
 
 // Taille du tampon
 #define BUFFER_SIZE 1024
@@ -21,8 +23,13 @@ struct _ES_FICHIER {
 FICHIER *es_stdout = NULL;
 FICHIER *es_stderr = NULL;
 
+
 // Fonction d'initialisation de stdout et stderr
+static int is_initialized = 0;
+
 void init_es_stdout_stderr() {
+    if (is_initialized) return;
+
     es_stdout = malloc(sizeof(FICHIER));
     if (!es_stdout) {
         write(STDERR_FILENO, "Erreur : allocation mémoire pour es_stdout\n", 43);
@@ -44,7 +51,10 @@ void init_es_stdout_stderr() {
     es_stderr->size = 0;
     es_stderr->mode = 'E';
     es_stderr->end_of_file = 0;
+
+    is_initialized = 1;  // Marquer comme initialisé
 }
+
 
 // Fonction pour ouvrir un fichier
 FICHIER *ouvrir(const char *nom, char mode) {
@@ -167,20 +177,157 @@ int ecrire(const void *p, unsigned int taille, unsigned int nbelem, FICHIER *f) 
 }
 
 // Fonction pour vider un tampon
-int vider(FICHIER *f) {
-    if (!f || f->fd == -1) {
-        write(STDERR_FILENO, "Erreur : pointeur fichier NULL ou fichier non ouvert dans vider\n", 62);
+int vider(void *f) {
+    // Initialisation automatique des fichiers standard si nécessaire
+    init_es_stdout_stderr();
+
+    if (!f) {
+        write(STDERR_FILENO, "Erreur : fichier non ouvert dans vider\n", 40);
         return -1;
     }
-    if (f->mode != 'E') return -1;
 
-    if (f->pos > 0) {
-        if (write(f->fd, f->buffer, f->pos) == -1) {
+    // Gestion des fichiers standard
+    if (f == es_stdout || f == es_stderr) {
+        return 0;  // Pas besoin de vidanger es_stdout ou es_stderr
+    }
+
+    // Gestion des fichiers FICHIER *
+    FICHIER *es_f = (FICHIER *)f;
+    if (es_f->mode != 'E') return -1;
+
+    if (es_f->pos > 0) {
+        if (write(es_f->fd, es_f->buffer, es_f->pos) == -1) {
             write(STDERR_FILENO, "Erreur lors de la vidange du tampon\n", 36);
             return -1;
         }
-        f->pos = 0;
+        es_f->pos = 0;
     }
 
     return 0;
+}
+
+
+
+
+
+// Fonction pour écrire des données formatées dans un fichier en utilisant un tampon intermédiaire
+int fecriref(void *f, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    // Initialisation automatique si nécessaire
+    init_es_stdout_stderr();
+
+    if (!f) {
+        write(STDERR_FILENO, "Erreur : fichier non ouvert pour fecriref\n", 44);
+        va_end(args);
+        return -1;
+    }
+
+    // Gestion des fichiers standard
+    if (f == es_stdout || f == es_stderr) {
+        FILE *std_file = (f == es_stdout) ? stdout : stderr;
+        vfprintf(std_file, format, args);
+        fflush(std_file);
+        va_end(args);
+        return 0;
+    }
+
+    // Gestion des fichiers FICHIER *
+    FICHIER *es_f = (FICHIER *)f;
+    char buffer[1024];
+    int n = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (n < 0) {
+        write(STDERR_FILENO, "Erreur lors du formatage\n", 26);
+        return -1;
+    }
+
+    return ecrire(buffer, 1, n, es_f);
+}
+
+
+
+
+
+// Fonction pour lire des données formatées depuis un fichier
+int fliref(FICHIER *f, const char *format, ...) {
+    if (!f || f->mode != 'L') {
+        write(STDERR_FILENO, "Erreur : fichier non ouvert en lecture\n", 40);
+        return -1;
+    }
+
+    va_list args;
+    va_start(args, format);
+
+    // Réinitialisation du tampon
+    char buffer[BUFFER_SIZE];
+    memset(buffer, 0, sizeof(buffer));
+
+    // Calcul de la taille des données restantes dans le tampon
+    unsigned int remaining = f->size - f->pos;
+    if (remaining == 0) {
+        remaining = lire(buffer, 1, sizeof(buffer) - 1, f);
+        if (remaining <= 0) {
+            va_end(args);
+            write(STDERR_FILENO, "Erreur : lecture échouée ou fin de fichier\n", 45);
+            return -1;
+        }
+        f->pos = 0;
+        f->size = remaining;
+    } else {
+        memcpy(buffer, f->buffer + f->pos, remaining);
+    }
+
+    buffer[remaining] = '\0'; // Terminer la chaîne
+
+    // Analyse avec vsscanf
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int count = vsscanf(buffer, format, args_copy);
+    va_end(args_copy);
+
+    if (count <= 0) {
+        write(STDERR_FILENO, "Erreur : vsscanf n'a pas pu analyser les données\n", 48);
+        va_end(args);
+        return -1;
+    }
+
+    // Calcul de l'offset à partir du tampon analysé
+    char *newline = strchr(buffer, '\n');
+    if (newline) {
+        int offset = newline - buffer + 1;
+        f->pos += offset;  // Réalignement
+        if (f->pos >= f->size) {
+            f->pos = 0; // Réinitialisation si la position dépasse la taille
+            f->size = 0;
+        }
+    } else {
+        f->pos += strlen(buffer); // Ajuster pour le reste du tampon
+    }
+
+    va_end(args);
+    return count;
+}
+
+// Fonction qui écrit directement sur stdout
+int ecriref(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    // Initialisation automatique si nécessaire
+    init_es_stdout_stderr();
+
+    char buffer[1024];
+    int n = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (n < 0) {
+        write(STDERR_FILENO, "Erreur lors du formatage\n", 26);
+        return -1;
+    }
+
+    write(STDOUT_FILENO, buffer, n);
+    return n;
 }

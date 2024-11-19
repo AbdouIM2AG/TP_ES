@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <assert.h>
+#include <stdio.h>
+
 
 #define MEMORY_SIZE 1280000 /* 1,3 Mo */
 
@@ -48,7 +50,7 @@ void mem_write (FICHIER* f)
     count += lr;
   }
   ecriref ("Done\n");
-  vider (stdout);
+  vider (es_stdout);
 }
 
 void mem_read (FICHIER* f, char* buff)
@@ -72,7 +74,7 @@ void mem_read (FICHIER* f, char* buff)
     assert (count <= MEMORY_SIZE);
   } while (lr);
   ecriref ("Done\n");
-  vider (stdout);
+  vider (es_stdout);
 }
 
 void mem_compare (char* ref, char *buff)
@@ -81,12 +83,12 @@ void mem_compare (char* ref, char *buff)
   ecriref ("Comparing memories...\n");
   for (i=0; i<MEMORY_SIZE; i++) {
     if (ref[i] != buff[i]) {
-      fecriref(stderr, "ERROR %c != %c at index %d\n", 
+      fecriref(es_stderr, "ERROR %c != %c at index %d\n", 
           ref[i], buff[i], i);
     }
   }
   ecriref ("Done\n");
-  vider (stdout);
+  vider (es_stdout);
 }
 
 
