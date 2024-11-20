@@ -6,7 +6,7 @@
 #include <stdio.h>  // Inclus pour utiliser FILE* sans conflit
 
 // Taille du tampon
-#define BUFFER_SIZE 1024 
+#define BUFFER_SIZE 32768 
 
 // Structure opaque pour le type FICHIER
 struct _ES_FICHIER;

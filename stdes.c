@@ -7,7 +7,13 @@
 #include <stdio.h>  // Pour vsnprintf et vsscanf
 
 // Taille du tampon
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 32768  // 64 Ko
+
+//BUFFER_SIZE = 4096 (4 Ko).
+//BUFFER_SIZE = 8192 (8 Ko).
+//BUFFER_SIZE = 16384 (16 Ko).
+//BUFFER_SIZE = 32768 (32 Ko).
+//BUFFER_SIZE 65536  // 64 Ko
 
 // Structure de gestion des fichiers
 struct _ES_FICHIER {
@@ -219,7 +225,7 @@ int fecriref(void *f, const char *format, ...) {
     init_es_stdout_stderr();
 
     if (!f) {
-        write(STDERR_FILENO, "Erreur : fichier non ouvert pour fecriref\n", 44);
+        write(STDERR_FILENO, "Erreur : fichier non ouvert pour fecriref\n", 43);
         va_end(args);
         return -1;
     }
